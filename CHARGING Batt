@@ -50,11 +50,11 @@ void updateStatusNextion(){
     sendToNextion("t_status.txt=\"START CHARGING\"");
   }
   else if(stopCharg == 1){
-    sendToNextion("t_status.pco=0");  // Nigga color
-    sendToNextion("t_status.txt=\"STOP CHARGING\"");
+    sendToNextion("t_status.pco=65504"); 
+        sendToNextion("t_status.txt=\"STOP CHARGING\"");
   }
   else {
-    sendToNextion("t_status.pco=0");  // Nigga color
+    sendToNextion("t_status.pco=17599");
     sendToNextion("t_status.txt=\"IDLE STATE\"");
   }
 }
@@ -297,11 +297,11 @@ void loop() {
   //   stopCharg = 1;
   // }
 
-    if(cased != 7){
+    if(cased != 7 && errFlag == 0){
     x = 0x0F;
     y = 0xA0;
     stopCharg = 0;
-  } else if(cased != 7){
+  } else{
     x = 0x00;
     y = 0x00;
     currentVal = 0x00;
