@@ -1,5 +1,6 @@
 #include <ESP32_CAN.h>
 #include "BluetoothSerial.h"
+#define RFEPin 14
 #define LED 32
 #define NEXTION_SERIAL Serial2
 
@@ -26,6 +27,7 @@ bool chargingStatus = false;
 char x;
 char y;
 int cased;
+int RFE;
 
 
 //Nextion
@@ -45,11 +47,11 @@ void updateStatusNextion(){
     sendToNextion("t_status.pco=63488");  // Red color
     sendToNextion("t_status.txt=\"CHARGING FAULT\"");
   }
-  else if(stopCharg == 0){
+  else if(RFE == 1 && stopCharg == 0){
     sendToNextion("t_status.pco=2016");  // Green color
     sendToNextion("t_status.txt=\"START CHARGING\"");
   }
-  else if(stopCharg == 1){
+  else if(stopCharg == 1 || RFE == 0){
     sendToNextion("t_status.pco=65504"); 
         sendToNextion("t_status.txt=\"STOP CHARGING\"");
   }
@@ -82,10 +84,17 @@ void updateErrorNextion(){
 
 void updateNextionDisplay(){
   sendToNextion("x_voltage.val=" + String((int)(mergeV)));
-  sendToNextion("x_current.val=" + String((int)(mergeC)));
+  // sendToNextion("x_current.val=" + String((int)(mergeC)));
 
   uint8_t actualAmpere = currentVal / 10;
-  sendToNextion("n_current.val=" + String(actualAmpere));
+    if (RFE == 0 || stopCharg == 1){
+      sendToNextion("n_current.val=0");
+      sendToNextion("x_current.val=0");
+  }
+  else{
+      sendToNextion("n_current.val=" + String(actualAmpere));
+      sendToNextion("x_current.val=" + String((int)(mergeC)));
+  }
   updateStatusNextion();
   updateErrorNextion();
 }
@@ -230,6 +239,7 @@ void decodeErrorFlags(){
 
 void setup() {
   Serial.begin(115200);
+  pinMode(RFEPin, INPUT);
   pinMode(LED, OUTPUT);
   NEXTION_SERIAL.begin(9600, SERIAL_8N1, 16, 17);
   SerialBT.begin ("Charging BT");
@@ -252,6 +262,9 @@ void setup() {
 void loop() {
   handleNextionInput(); //Pertimbangan waktu pengiriman
   static uint32_t t = millis();
+  if(cased != 8){
+  RFE = digitalRead(RFEPin);
+  }
   // if(cased != 8){
   // RFE = digitalRead(RFEPin);
   // }
@@ -294,10 +307,11 @@ void loop() {
   //   x = 0x00;
   //   y = 0x00;
   //   currentVal = 0x00;
-  //   stopCharg = 1;
+  //   stopCharg = 1;mergeV
+
   // }
 
-    if(cased != 7 && errFlag == 0){
+    if(RFE == 1 && cased != 7 && errFlag == 0){
     x = 0x0F;
     y = 0xA0;
     stopCharg = 0;
@@ -345,7 +359,7 @@ void loop() {
       SerialBT.print(" ");
     }
     SerialBT.print(" -- Precharge Status: ");
-    // SerialBT.print(RFE);
+    SerialBT.print(RFE);
     SerialBT.print(stopCharg);
     SerialBT.print(" -- Charge Status: "); //1 for Stop, 0 for Start Charge
     SerialBT.println(stopCharg);
