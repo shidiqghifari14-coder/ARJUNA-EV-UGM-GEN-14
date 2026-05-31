@@ -315,6 +315,7 @@ void loop() {
     x = 0x0F;
     y = 0xA0;
     stopCharg = 0;
+    currentVal = 0x14;
   } else{
     x = 0x00;
     y = 0x00;
