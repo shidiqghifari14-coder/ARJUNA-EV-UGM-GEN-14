@@ -1,6 +1,5 @@
 #include <ESP32_CAN.h>
-#include "BluetoothSerial.h"  
-#define RFEPin 25
+#include "BluetoothSerial.h"
 #define LED 32
 #define NEXTION_SERIAL Serial2
 
@@ -10,6 +9,10 @@ ESP32_CAN<RX_SIZE_256, TX_SIZE_16> Can0;
 //Format Buffer
 //msg.buf[] = {0x02, 0x12, 0x00, 0x0D, 0, 0, 0, 0};
           //0x0212 = 530 = 53V ; 0x000D = 13 = 1,3 A
+          
+
+         // ======= Tambahin Buat logic otomatis biar ga lebih dari 1380W ======
+         // ========= Limitin Arusnya Untuk Ga lebih dari 1380W ================
 
 
 //bitRead(msg.buf
@@ -23,7 +26,7 @@ bool chargingStatus = false;
 char x;
 char y;
 int cased;
-int RFE;
+
 
 //Nextion
 uint32_t lastNextionUpdate = 0;
@@ -42,16 +45,16 @@ void updateStatusNextion(){
     sendToNextion("t_status.pco=63488");  // Red color
     sendToNextion("t_status.txt=\"CHARGING FAULT\"");
   }
-  else if(RFE == 1 && stopCharg == 0){
+  else if(stopCharg == 0){
     sendToNextion("t_status.pco=2016");  // Green color
     sendToNextion("t_status.txt=\"START CHARGING\"");
   }
-  else if(stopCharg == 1 || RFE == 0){
-    sendToNextion("t_status.pco=65535");  // Nigga color
+  else if(stopCharg == 1){
+    sendToNextion("t_status.pco=0");  // Nigga color
     sendToNextion("t_status.txt=\"STOP CHARGING\"");
   }
   else {
-    sendToNextion("t_status.pco=65535");  // Nigga color
+    sendToNextion("t_status.pco=0");  // Nigga color
     sendToNextion("t_status.txt=\"IDLE STATE\"");
   }
 }
@@ -60,12 +63,11 @@ void updateErrorNextion(){
   
   if(errFlag == 0){
     sendToNextion("t_error.pco=2016");            // hijau
-    sendToNextion("t_error.txt=\"STATUS OK\""); 
-    Serial.print("STATUS OK");     //Buat Troubleshoot                               
+    sendToNextion("t_error.txt=\"STATUS OK\"");                                     
   }
   else{
   String errorText;
-  errorText.reserve(70);                  // alokasi memori duluan
+  errorText.reserve(50);                  // alokasi memori duluan
 
   if(bitRead(errFlag, 0)) errorText += "HWFail;";
   if(bitRead(errFlag, 1)) errorText += "OvrTmp;";
@@ -83,16 +85,7 @@ void updateNextionDisplay(){
   sendToNextion("x_current.val=" + String((int)(mergeC)));
 
   uint8_t actualAmpere = currentVal / 10;
-  if (RFE == 0 || stopCharg == 1){
-      sendToNextion("n_current.val=0");
-      sendToNextion("x_current.val=0");
-  }
-  else{
-      sendToNextion("n_current.val=" + String(actualAmpere));
-      sendToNextion("x_current.val=" + String((int)(mergeC)));
-  }
-  // sendToNextion("n_current.val=" + String(actualAmpere));
-
+  sendToNextion("n_current.val=" + String(actualAmpere));
   updateStatusNextion();
   updateErrorNextion();
 }
@@ -107,13 +100,14 @@ void initNextionDisplay(){
   sendToNextion("t_status.pco=0");
   sendToNextion("t_status.txt=\"IDLE STATE\"");
   sendToNextion("t_error.pco=2016");
-  sendToNextion("t_error.txt=\"IDLE STATE\"");
+  sendToNextion("t_error.txt=\"STATUS OK\"");
 
   sendToNextion("page2");
   delay(100);
   sendToNextion("n_current.val=0");
 }
 
+//handle button nextion for request current
 //handle button nextion for request current
 void handleNextionInput(){
   if (NEXTION_SERIAL.available()) {
@@ -168,6 +162,41 @@ void handleNextionInput(){
   }
 }
 
+void onReceive(const CAN_message_t &msg) {
+  if(msg.id == 0x18FF50E5){
+  Serial.print("LEN: "); Serial.print(msg.len, HEX);
+  Serial.print(" ID: "); Serial.print(msg.id, HEX);
+  Serial.print(" Buffer: ");
+  SerialBT.print ("LEN: "); SerialBT.print(msg.len, HEX);
+  SerialBT.print(" ID: "); SerialBT.print(msg.id, HEX);
+  SerialBT.print(" Buffer: ");
+
+  for ( uint8_t i = 0; i < msg.len; i++ ) {
+    Serial.print(msg.buf[i]); Serial.print(" ");
+    SerialBT.print(msg.buf[i]); Serial.print(" ");
+    canData[i] = msg.buf[i];
+  } 
+  Serial.println(); 
+  SerialBT.println(); 
+
+  mergeV = (canData[0] << 8) | canData[1]; 
+  mergeC = (canData[2] << 8) | canData[3]; 
+  errFlag = canData[4];
+  decodeErrorFlags();
+
+  String receiveData = "VOLTAGE = " + String(mergeV) + "CURRENT = " + String(mergeC) + "ERR = " + String (errFlag, BIN);
+  // SerialBT.print(receiveData);
+  SerialBT.println(receiveData);
+
+  Serial.print("VOLTAGE: ");Serial.println(mergeV);
+  Serial.print("CURRENT : ");Serial.println(mergeC);
+  Serial.print("ERR     : ");Serial.println(errFlag, BIN);
+  // SerialBT.print("VOLTAGE: ");Serial.println(mergeV);
+  // SerialBT.print("CURRENT : ");Serial.println(mergeC);
+  // SerialBT.print("ERR     : ");Serial.println(errFlag, BIN);
+  }
+}
+
 void decodeErrorFlags(){
 // Bit0: Hardware Failure
   if (bitRead(errFlag, 0) == 1 ){
@@ -199,49 +228,8 @@ void decodeErrorFlags(){
   SerialBT.println();
 }
 
-void onReceive(const CAN_message_t &msg) {
-  if(msg.id == 0x18FF50E5){
-  Serial.print("LEN: "); Serial.println(msg.len, HEX);
-  Serial.print(" ID: "); Serial.println(msg.id, HEX);
-  Serial.println(" Buffer: ");
-  SerialBT.print ("LEN: "); SerialBT.print(msg.len, HEX);
-  SerialBT.print(" ID: "); SerialBT.print(msg.id, HEX);
-  SerialBT.print(" Buffer: ");
-
-  for ( uint8_t i = 0; i < msg.len; i++ ) {
-    Serial.print(msg.buf[i]); Serial.print(" ");
-    SerialBT.print(msg.buf[i]); Serial.print(" ");
-    canData[i] = msg.buf[i];
-  } 
-  Serial.println(); 
-  SerialBT.println(); 
-
-Serial.println(">> [RX] CAN MESSAGE RECEIVED OK!");
-Serial.println("========================================");
-SerialBT.println(">> [RX] CAN MESSAGE RECEIVED OK!");
-SerialBT.println("========================================");
-
-  mergeV = (canData[0] << 8) | canData[1]; 
-  mergeC = (canData[2] << 8) | canData[3]; 
-  errFlag = canData[4];
-  decodeErrorFlags();
-
-  String receiveData = "VOLTAGE = " + String(mergeV) + "CURRENT = " + String(mergeC) + "ERR = " + String (errFlag, BIN);
-  // SerialBT.print(receiveData);
-  SerialBT.println(receiveData);
-
-  Serial.print("VOLTAGE: ");Serial.println(mergeV);
-  Serial.print("CURRENT : ");Serial.println(mergeC);
-  Serial.print("ERR     : ");Serial.println(errFlag, BIN);
-  // SerialBT.print("VOLTAGE: ");Serial.println(mergeV);
-  // SerialBT.print("CURRENT : ");Serial.println(mergeC);
-  // SerialBT.print("ERR     : ");Serial.println(errFlag, BIN);
-  }
-}
-
 void setup() {
   Serial.begin(115200);
-  pinMode(RFEPin, INPUT);
   pinMode(LED, OUTPUT);
   NEXTION_SERIAL.begin(9600, SERIAL_8N1, 16, 17);
   SerialBT.begin ("Charging BT");
@@ -254,7 +242,7 @@ void setup() {
 
   Serial.println("Charging BT Ready to Pair"); 
   SerialBT.println("Charging BT Ready to Pair");
-  // pinMode(RFEPin, INPUT);
+
   
   delay(500);
   initNextionDisplay();
@@ -264,9 +252,9 @@ void setup() {
 void loop() {
   handleNextionInput(); //Pertimbangan waktu pengiriman
   static uint32_t t = millis();
-  if(cased != 8){
-  RFE = digitalRead(RFEPin);
-  }
+  // if(cased != 8){
+  // RFE = digitalRead(RFEPin);
+  // }
 
   if(SerialBT.available()){
     char input = SerialBT.read();
@@ -290,19 +278,30 @@ void loop() {
       sendToNextion("n_current.val=6");
       break;
       case '7' : currentVal = 0x0; x = 0x00; y = 0x00; cased = 7; stopCharg = 1; break;
-      case '8' : currentVal = 0x14; RFE = 1; cased = 8; stopCharg = 0; break;
-      case '9' : currentVal = 0x3C; RFE = 1; cased = 8; stopCharg = 0; break;
-      case '0' : currentVal = 0x28; RFE = 1; cased = 8; stopCharg = 0; break;
+      case '8' : currentVal = 0x14;  cased = 8; stopCharg = 0; break;
+      case '9' : currentVal = 0x3C;  cased = 8; stopCharg = 0; break;
+      case '0' : currentVal = 0x28;  cased = 8; stopCharg = 0; break;
     }
 
     updateStatusNextion();
   }
  
-  if(RFE == 1 && cased != 7){
+  // if(RFE == 1 && cased != 7){
+  //   x = 0x0F;
+  //   y = 0xA0;
+  //   stopCharg = 0;
+  // } else if(RFE == 0 && cased != 7){
+  //   x = 0x00;
+  //   y = 0x00;
+  //   currentVal = 0x00;
+  //   stopCharg = 1;
+  // }
+
+    if(cased != 7){
     x = 0x0F;
     y = 0xA0;
     stopCharg = 0;
-  } else if(RFE == 0 && cased != 7){
+  } else if(cased != 7){
     x = 0x00;
     y = 0x00;
     currentVal = 0x00;
@@ -346,7 +345,8 @@ void loop() {
       SerialBT.print(" ");
     }
     SerialBT.print(" -- Precharge Status: ");
-    SerialBT.print(RFE);
+    // SerialBT.print(RFE);
+    SerialBT.print(stopCharg);
     SerialBT.print(" -- Charge Status: "); //1 for Stop, 0 for Start Charge
     SerialBT.println(stopCharg);
 
